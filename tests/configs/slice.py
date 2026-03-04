@@ -4,7 +4,7 @@ import pytest
 from jax import lax, random
 from jax import numpy as jnp
 
-from .util import MPS_DEVICE, OperationTestConfig
+from .util import OperationTestConfig
 
 
 def make_slice_op_configs():
@@ -160,7 +160,6 @@ def make_slice_op_configs():
                 lambda x: x[jnp.arange(4), jnp.arange(4)],
                 lambda key: random.normal(key, (4, 4)),
                 name="multi_index_point_gather",
-                grad_xfail="scatter:.+unsupported scatter pattern",
             ),
             # Batched gather via vmap
             OperationTestConfig(
@@ -170,7 +169,7 @@ def make_slice_op_configs():
                 lambda key: random.normal(key, (3, 10)),
                 lambda key: random.randint(key, (3,), 0, 10),
                 name="batched_single_axis_gather",
-                grad_xfail="scatter:.+unsupported scatter pattern",
+                grad_xfail="scatter:.+general fallback requires insertedWindowDims",
             ),
             # Large integer gather tests: verify integers > 2^24 are preserved
             # These test the bitcast workaround for MPS gather operations
@@ -238,23 +237,12 @@ def make_slice_op_configs():
                 name="scatter_multi_dim_diagonal_add",
             ),
             # Grad of multi-dim scatter with respect to updates
-            # Forward pass works but gradient requires unsupported gather pattern
-            pytest.param(
-                OperationTestConfig(
-                    lambda x, vals: x.at[numpy.arange(4), numpy.arange(4)].add(vals),
-                    lambda key: jnp.zeros((4, 4), dtype=jnp.float32),
-                    lambda key: random.normal(key, (4,)),
-                    differentiable_argnums=(1,),
-                    name="scatter_multi_dim_diagonal_add_grad_updates",
-                ),
-                marks=[
-                    pytest.mark.xfail(
-                        reason="gather: unsupported gather pattern",
-                        strict=False,
-                    )
-                ]
-                if MPS_DEVICE
-                else [],
+            OperationTestConfig(
+                lambda x, vals: x.at[numpy.arange(4), numpy.arange(4)].add(vals),
+                lambda key: jnp.zeros((4, 4), dtype=jnp.float32),
+                lambda key: random.normal(key, (4,)),
+                differentiable_argnums=(1,),
+                name="scatter_multi_dim_diagonal_add_grad_updates",
             ),
             # Batched scatter using vmap - tests numStableHLOBatch > 0
             # These crash due to incorrect handling of StableHLO batch dimensions
