@@ -109,23 +109,17 @@ def make_numpyro_op_configs():
                         differentiable_argnums=(1,),
                         name="Binomial",
                     ),
-                    marks=[xfail_match("gather:.+unsupported gather pattern")],
-                ),
-                pytest.param(
-                    NumpyroDistributionTestConfig(
-                        dists.CategoricalProbs,
-                        lambda key, bs=batch_shape: random.dirichlet(
-                            key, jnp.ones(5), bs
-                        ),
-                        differentiable_argnums=(1,),
-                        name="Categorical",
-                    ),
                     marks=[
-                        pytest.mark.xfail(
-                            reason="Batched gather bug (#60)",
-                            strict=False,
+                        pytest.mark.skip(
+                            reason="Segfaults on MPS (issue #57). Works on CPU but crashes before exception can be raised."
                         )
                     ],
+                ),
+                NumpyroDistributionTestConfig(
+                    dists.CategoricalProbs,
+                    lambda key, bs=batch_shape: random.dirichlet(key, jnp.ones(5), bs),
+                    differentiable_argnums=(1,),
+                    name="Categorical",
                 ),
                 NumpyroDistributionTestConfig(
                     dists.Poisson,
@@ -209,35 +203,75 @@ def make_numpyro_op_configs():
                     ),  # concentration
                 ),
                 # Multivariate distributions.
-                pytest.param(
-                    NumpyroDistributionTestConfig(
-                        dists.MultivariateNormal,
-                        lambda key, bs=batch_shape: random.normal(
-                            key, bs + (4,)
-                        ),  # loc
-                        None,  # covariance_matrix
-                        None,  # precision_matrix
-                        lambda key: jnp.linalg.cholesky(jnp.eye(4) + jnp.ones((4, 4))),
-                    ),
-                    marks=[
-                        xfail_match(
-                            "gather:.+unsupported gather pattern|Native op handler returned nil"
+                *(
+                    [
+                        pytest.param(
+                            NumpyroDistributionTestConfig(
+                                dists.MultivariateNormal,
+                                lambda key, bs=batch_shape: random.normal(
+                                    key, bs + (4,)
+                                ),  # loc
+                                None,  # covariance_matrix
+                                None,  # precision_matrix
+                                lambda key: jnp.linalg.cholesky(
+                                    jnp.eye(4) + jnp.ones((4, 4))
+                                ),
+                            ),
+                            marks=[
+                                xfail_match(
+                                    "gather:.+unsupported gather pattern"
+                                    "|scatter:.+unsupported scatter pattern"
+                                )
+                            ],
                         )
-                    ],
+                    ]
+                    if batch_shape != ()
+                    else [
+                        NumpyroDistributionTestConfig(
+                            dists.MultivariateNormal,
+                            lambda key, bs=batch_shape: random.normal(
+                                key, bs + (4,)
+                            ),  # loc
+                            None,  # covariance_matrix
+                            None,  # precision_matrix
+                            lambda key: jnp.linalg.cholesky(
+                                jnp.eye(4) + jnp.ones((4, 4))
+                            ),
+                        ),
+                    ]
                 ),
-                pytest.param(
-                    NumpyroDistributionTestConfig(
-                        dists.LowRankMultivariateNormal,
-                        lambda key, bs=batch_shape: random.normal(
-                            key, bs + (4,)
-                        ),  # loc
-                        lambda key, bs=batch_shape: random.normal(
-                            key, bs + (4, 2)
-                        ),  # cov_factor
-                        lambda key, bs=batch_shape: random.gamma(
-                            key, 5.0, bs + (4,)
-                        ),  # cov_diag
-                    ),
-                    marks=[xfail_match("gather:.+unsupported gather pattern")],
+                *(
+                    [
+                        pytest.param(
+                            NumpyroDistributionTestConfig(
+                                dists.LowRankMultivariateNormal,
+                                lambda key, bs=batch_shape: random.normal(
+                                    key, bs + (4,)
+                                ),  # loc
+                                lambda key, bs=batch_shape: random.normal(
+                                    key, bs + (4, 2)
+                                ),  # cov_factor
+                                lambda key, bs=batch_shape: random.gamma(
+                                    key, 5.0, bs + (4,)
+                                ),  # cov_diag
+                            ),
+                            marks=[xfail_match("gather:.+unsupported gather pattern")],
+                        )
+                    ]
+                    if batch_shape != ()
+                    else [
+                        NumpyroDistributionTestConfig(
+                            dists.LowRankMultivariateNormal,
+                            lambda key, bs=batch_shape: random.normal(
+                                key, bs + (4,)
+                            ),  # loc
+                            lambda key, bs=batch_shape: random.normal(
+                                key, bs + (4, 2)
+                            ),  # cov_factor
+                            lambda key, bs=batch_shape: random.gamma(
+                                key, 5.0, bs + (4,)
+                            ),  # cov_diag
+                        ),
+                    ]
                 ),
             ]
