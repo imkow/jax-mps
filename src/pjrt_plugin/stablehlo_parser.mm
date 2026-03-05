@@ -3,6 +3,8 @@
 
 #include "pjrt_plugin/stablehlo_parser.h"
 
+#import <Foundation/Foundation.h>
+
 #include <unordered_set>
 
 #include "llvm/Support/MemoryBuffer.h"
@@ -66,6 +68,7 @@ bool runOptimizationPasses(mlir::MLIRContext& context, mlir::ModuleOp module) {
 
     if (mlir::failed(pm.run(module))) {
         // Optimization failures are non-fatal - we can still execute unoptimized IR
+        NSLog(@"WARNING: StableHLO optimization pass failed, continuing with unoptimized IR");
         return false;
     }
     return true;
