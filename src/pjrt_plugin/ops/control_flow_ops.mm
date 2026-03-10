@@ -66,8 +66,9 @@ NSArray<MPSGraphTensor*>* EvaluateWhileBody(MPSGraph* graph, mlir::Block& bodyBl
         }
 
         // MPS Graph may promote scalar tensors to rank-1 inside while loop bodies,
-        // causing shape mismatches between body outputs and loop-carried types.
-        // Reshape body outputs to match the expected shapes from the initial inputs.
+        // causing shape mismatches between body outputs and loop-carried types
+        // (e.g., tensor<f32> becomes tensor<1xf32>). Reshape back to match.
+        // This is safe because only the rank changes, not the element count.
         if (i < bodyArgs.count) {
             NSArray<NSNumber*>* expectedShape = bodyArgs[i].shape;
             if (expectedShape && ![tensor.shape isEqualToArray:expectedShape]) {

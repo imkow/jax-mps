@@ -54,9 +54,16 @@ void registerDialects(mlir::MLIRContext& context) {
     context.allowUnregisteredDialects();
 }
 
-// Run StableHLO optimization passes (algebraic simplification + constant folding)
-// This optimizes the IR before execution, e.g., x*1 -> x, x+0 -> x, constant folding.
+// Run StableHLO algebraic simplification passes (x*1 -> x, x+0 -> x, etc.)
+// Disable by setting JAX_MPS_NO_OPTIMIZE=1 if you encounter issues.
 bool runOptimizationPasses(mlir::MLIRContext& context, mlir::ModuleOp module) {
+    static const bool disabled = [] {
+        const char* env = std::getenv("JAX_MPS_NO_OPTIMIZE");
+        return env && std::string(env) == "1";
+    }();
+    if (disabled)
+        return true;
+
     mlir::PassManager pm(&context);
     // Algebraic simplification: x*1 -> x, x+0 -> x, etc.
     pm.addNestedPass<mlir::func::FuncOp>(
@@ -67,7 +74,8 @@ bool runOptimizationPasses(mlir::MLIRContext& context, mlir::ModuleOp module) {
     // MPS Graph while-loop execution.
 
     if (mlir::failed(pm.run(module))) {
-        NSLog(@"WARNING: StableHLO optimization pass failed, continuing with unoptimized IR");
+        NSLog(@"ERROR: StableHLO optimization pass failed. The module may be in a partially "
+              @"transformed state. Set JAX_MPS_NO_OPTIMIZE=1 to skip optimization passes.");
         return false;
     }
 
@@ -142,10 +150,12 @@ ParsedModule finalizeModule(std::unique_ptr<mlir::MLIRContext> context,
         return result;
     }
 
-    // Run StableHLO optimization passes (algebraic simplification, constant folding)
-    // Run after inlining so the passes see fully-inlined IR without func.call ops.
-    // This is non-fatal - we continue even if optimization fails.
-    (void)runOptimizationPasses(*context, *module);
+    // Run StableHLO algebraic simplification passes after inlining so the passes
+    // see fully-inlined IR without func.call ops. Fatal on failure because a
+    // failed pass may leave the module partially transformed.
+    if (!runOptimizationPasses(*context, *module)) {
+        return result;
+    }
 
     // Find the entry function
     mlir::func::FuncOp entry = findEntryFunction(*module);
