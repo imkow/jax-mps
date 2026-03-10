@@ -23,12 +23,7 @@
 #include "stablehlo/dialect/Serialization.h"
 #include "stablehlo/dialect/StablehloOps.h"
 #include "stablehlo/dialect/VhloOps.h"
-
-// Forward declaration for StableHLO optimization pass
-// The header requires generated .inc files, so we declare the function directly
-namespace mlir::stablehlo {
-std::unique_ptr<mlir::Pass> createStablehloTargetIndependentOptimizationPass();
-}  // namespace mlir::stablehlo
+#include "stablehlo/transforms/optimization/Passes.h"
 
 namespace mps {
 
@@ -59,18 +54,23 @@ void registerDialects(mlir::MLIRContext& context) {
     context.allowUnregisteredDialects();
 }
 
-// Run StableHLO optimization passes (algebraic simplification and constant folding)
-// This optimizes the IR before execution, e.g., x*1 -> x, x+0 -> x, x/x -> 1
+// Run StableHLO optimization passes (algebraic simplification + constant folding)
+// This optimizes the IR before execution, e.g., x*1 -> x, x+0 -> x, constant folding.
 bool runOptimizationPasses(mlir::MLIRContext& context, mlir::ModuleOp module) {
     mlir::PassManager pm(&context);
-    // Target-independent optimization combines aggressive simplification and folding
-    pm.addPass(mlir::stablehlo::createStablehloTargetIndependentOptimizationPass());
+    // Algebraic simplification: x*1 -> x, x+0 -> x, etc.
+    pm.addNestedPass<mlir::func::FuncOp>(
+        mlir::stablehlo::createStablehloAggressiveSimplificationPass());
+    // NOTE: The aggressive folder pass (constant folding) is intentionally excluded.
+    // It causes execution hangs with certain patterns (e.g., cholesky gradient in eager
+    // mode) due to folded broadcast_in_dim+constant patterns that create issues in the
+    // MPS Graph while-loop execution.
 
     if (mlir::failed(pm.run(module))) {
-        // Optimization failures are non-fatal - we can still execute unoptimized IR
         NSLog(@"WARNING: StableHLO optimization pass failed, continuing with unoptimized IR");
         return false;
     }
+
     return true;
 }
 
@@ -137,14 +137,15 @@ ParsedModule finalizeModule(std::unique_ptr<mlir::MLIRContext> context,
         return result;
     }
 
-    // Run StableHLO optimization passes (algebraic simplification, constant folding)
-    // This is non-fatal - we continue even if optimization fails
-    (void)runOptimizationPasses(*context, *module);
-
     // Run the inliner pass to inline all func.call operations
     if (!runInlinerPass(*context, *module)) {
         return result;
     }
+
+    // Run StableHLO optimization passes (algebraic simplification, constant folding)
+    // Run after inlining so the passes see fully-inlined IR without func.call ops.
+    // This is non-fatal - we continue even if optimization fails.
+    (void)runOptimizationPasses(*context, *module);
 
     // Find the entry function
     mlir::func::FuncOp entry = findEntryFunction(*module);

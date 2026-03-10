@@ -57,12 +57,24 @@ NSArray<MPSGraphTensor*>* EvaluateWhileBody(MPSGraph* graph, mlir::Block& bodyBl
     }
 
     NSMutableArray<MPSGraphTensor*>* out = [NSMutableArray array];
-    for (mlir::Value value : bodyResult.return_values) {
+    for (size_t i = 0; i < bodyResult.return_values.size(); i++) {
+        mlir::Value value = bodyResult.return_values[i];
         MPSGraphTensor* tensor = GetTensor(bodyValues, value);
         if (!tensor) {
             *blockError = "while body return tensor not found";
             return bodyArgs;
         }
+
+        // MPS Graph may promote scalar tensors to rank-1 inside while loop bodies,
+        // causing shape mismatches between body outputs and loop-carried types.
+        // Reshape body outputs to match the expected shapes from the initial inputs.
+        if (i < bodyArgs.count) {
+            NSArray<NSNumber*>* expectedShape = bodyArgs[i].shape;
+            if (expectedShape && ![tensor.shape isEqualToArray:expectedShape]) {
+                tensor = [graph reshapeTensor:tensor withShape:expectedShape name:nil];
+            }
+        }
+
         [out addObject:tensor];
     }
     return out;
